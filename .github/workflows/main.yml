@@ -37,7 +37,8 @@ jobs:
             nautilus \
             gtk2-engines-murrine \
             gtk2-engines-pixbuf \
-            arc-theme
+            arc-theme \
+            firefox
           
           # Install XRDP for remote desktop access
           sudo apt-get install -y xrdp
@@ -92,24 +93,18 @@ jobs:
           ZoomPercent=150
           EOF
           
-          # Configure Budgie panel for Mac-like top bar
-          gsettings set com.solus-project.budgie-panel location 'top'
-          gsettings set com.solus-project.budgie-panel enable-animations true
-          gsettings set com.solus-project.budgie-panel dark-theme false
-          
-          # Set Mac-like GTK theme
+          # Set Mac-like GTK and icon themes
           gsettings set org.gnome.desktop.interface gtk-theme 'Arc'
           gsettings set org.gnome.desktop.interface icon-theme 'ubuntu-mono-dark'
           gsettings set org.gnome.desktop.interface cursor-theme 'DMZ-White'
+          gsettings set org.gnome.desktop.interface enable-animations true
           
           # Configure window buttons (close, minimize, maximize) on the left like macOS
           gsettings set org.gnome.desktop.wm.preferences button-layout 'close,minimize,maximize:'
           
-          # Additional macOS-like settings
-          gsettings set org.gnome.desktop.interface enable-animations true
+          # Set desktop background
           gsettings set org.gnome.desktop.background picture-uri 'file:///usr/share/backgrounds/budgie/default.jpg'
-          gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
-          gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
+          gsettings set org.gnome.desktop.background picture-options 'zoom'
           
       - name: Create RDP User with Random Username
         run: |
@@ -133,7 +128,8 @@ jobs:
           sudo usermod -aG adm $USERNAME
           
           # Copy theme configurations to new user
-          sudo cp -r ~/.config /home/$USERNAME/
+          sudo mkdir -p /home/$USERNAME/.config/plank/dock1
+          sudo cp -r ~/.config/plank /home/$USERNAME/.config/
           sudo cp -r ~/.themes /home/$USERNAME/
           sudo cp -r ~/.icons /home/$USERNAME/
           sudo cp ~/.xsessionrc /home/$USERNAME/
