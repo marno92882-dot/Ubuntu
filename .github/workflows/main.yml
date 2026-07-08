@@ -34,13 +34,10 @@ jobs:
             budgie-indicator-applet \
             plank \
             gnome-terminal \
-            nautilus
-          
-          # Install Plank dock themes and configuration
-          sudo apt-get install -y \
-            plank-theme-mac-os \
+            nautilus \
             gtk2-engines-murrine \
-            gtk2-engines-pixbuf
+            gtk2-engines-pixbuf \
+            arc-theme
           
           # Install XRDP for remote desktop access
           sudo apt-get install -y xrdp
@@ -100,13 +97,19 @@ jobs:
           gsettings set com.solus-project.budgie-panel enable-animations true
           gsettings set com.solus-project.budgie-panel dark-theme false
           
-          # Set Mac-like GTK theme if available
-          sudo apt-get install -y arc-theme
+          # Set Mac-like GTK theme
           gsettings set org.gnome.desktop.interface gtk-theme 'Arc'
           gsettings set org.gnome.desktop.interface icon-theme 'ubuntu-mono-dark'
+          gsettings set org.gnome.desktop.interface cursor-theme 'DMZ-White'
           
           # Configure window buttons (close, minimize, maximize) on the left like macOS
           gsettings set org.gnome.desktop.wm.preferences button-layout 'close,minimize,maximize:'
+          
+          # Additional macOS-like settings
+          gsettings set org.gnome.desktop.interface enable-animations true
+          gsettings set org.gnome.desktop.background picture-uri 'file:///usr/share/backgrounds/budgie/default.jpg'
+          gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
+          gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
           
       - name: Create RDP User with Random Username
         run: |
@@ -208,7 +211,7 @@ jobs:
           echo "   2. Make sure Tailscale is running on your machine"
           echo "   3. Use IP: $TAILSCALE_IP"
           echo "   4. Login with the credentials above"
-          echo "   5. Experience macOS-like interface!"
+          echo "   5. Experience macOS-like interface with Budgie Desktop!"
           echo ""
 
       - name: Maintain Connection
