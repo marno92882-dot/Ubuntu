@@ -1,0 +1,227 @@
+name: Biji
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3600
+
+    steps:
+      - name: Install Mac OS Like Desktop Environment and RDP
+        run: |
+          # Update package list
+          sudo apt-get update
+          
+          # Install required packages
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            xorg \
+            xinit \
+            x11-xserver-utils \
+            dbus-x11 \
+            software-properties-common
+          
+          # Add repository for latest software
+          sudo add-apt-repository -y ppa:ubuntubudgie/backports
+          sudo apt-get update
+          
+          # Install Budgie Desktop (macOS-like experience)
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            ubuntu-budgie-desktop \
+            budgie-desktop \
+            budgie-core \
+            budgie-indicator-applet \
+            plank \
+            gnome-terminal \
+            nautilus
+          
+          # Install Plank dock themes and configuration
+          sudo apt-get install -y \
+            plank-theme-mac-os \
+            gtk2-engines-murrine \
+            gtk2-engines-pixbuf
+          
+          # Install XRDP for remote desktop access
+          sudo apt-get install -y xrdp
+          
+          # Configure XRDP to use Budgie Desktop
+          echo "export DESKTOP_SESSION=budgie-desktop" > ~/.xsessionrc
+          echo "export GNOME_SHELL_SESSION_MODE=budgie-desktop" >> ~/.xsessionrc
+          echo "export XDG_CURRENT_DESKTOP=Budgie:GNOME" >> ~/.xsessionrc
+          echo "budgie-desktop" > ~/.xsession
+          
+          # Configure XRDP settings for better performance
+          sudo sed -i 's/max_bpp=32/max_bpp=16/g' /etc/xrdp/xrdp.ini
+          sudo sed -i 's/xserverbpp=24/xserverbpp=16/g' /etc/xrdp/xrdp.ini
+          
+          # Start and enable XRDP service
+          sudo systemctl enable xrdp
+          sudo systemctl restart xrdp
+          
+          # Configure firewall for RDP port 3389
+          sudo ufw allow 3389/tcp
+          sudo ufw --force enable
+
+      - name: Apply Mac OS Theme Configuration
+        run: |
+          # Create theme directories
+          mkdir -p ~/.config/plank/dock1
+          mkdir -p ~/.themes
+          mkdir -p ~/.icons
+          
+          # Configure Plank dock (Mac-like dock)
+          cat > ~/.config/plank/dock1/settings << 'EOF'
+          [PlankDockPreferences]
+          Alignment=center
+          AutoPinning=true
+          CurrentWorkspaceOnly=false
+          DockItems=budgie-main-menu.dockitem;;firefox.dockitem;;nautilus.dockitem;;gnome-terminal.dockitem;;gsettings.dockitem
+          HideDelay=0
+          HideMode=0
+          IconSize=48
+          ItemsAlignment=center
+          LockItems=true
+          Monitor=
+          Offset=0
+          PinnedOnly=false
+          Position=bottom
+          PressureReveal=false
+          ShowDockItem=false
+          Theme=Transparent
+          TooltipsEnabled=true
+          UnhideDelay=0
+          ZoomEnabled=true
+          ZoomPercent=150
+          EOF
+          
+          # Configure Budgie panel for Mac-like top bar
+          gsettings set com.solus-project.budgie-panel location 'top'
+          gsettings set com.solus-project.budgie-panel enable-animations true
+          gsettings set com.solus-project.budgie-panel dark-theme false
+          
+          # Set Mac-like GTK theme if available
+          sudo apt-get install -y arc-theme
+          gsettings set org.gnome.desktop.interface gtk-theme 'Arc'
+          gsettings set org.gnome.desktop.interface icon-theme 'ubuntu-mono-dark'
+          
+          # Configure window buttons (close, minimize, maximize) on the left like macOS
+          gsettings set org.gnome.desktop.wm.preferences button-layout 'close,minimize,maximize:'
+          
+      - name: Create RDP User with Random Username
+        run: |
+          # Generate random 4-digit number
+          RANDOM_NUM=$((1000 + RANDOM % 9000))
+          USERNAME="Marno${RANDOM_NUM}"
+          
+          # Store username in environment variable
+          echo "RDP_USERNAME=$USERNAME" >> $GITHUB_ENV
+          
+          # Generate secure password
+          PASSWORD=$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-16)
+          
+          # Create user with random username
+          sudo useradd -m -s /bin/bash $USERNAME
+          echo "$USERNAME:$PASSWORD" | sudo chpasswd
+          
+          # Add user to necessary groups
+          sudo usermod -aG sudo $USERNAME
+          sudo usermod -aG xrdp $USERNAME
+          sudo usermod -aG adm $USERNAME
+          
+          # Copy theme configurations to new user
+          sudo cp -r ~/.config /home/$USERNAME/
+          sudo cp -r ~/.themes /home/$USERNAME/
+          sudo cp -r ~/.icons /home/$USERNAME/
+          sudo cp ~/.xsessionrc /home/$USERNAME/
+          sudo cp ~/.xsession /home/$USERNAME/
+          sudo chown -R $USERNAME:$USERNAME /home/$USERNAME/
+          
+          # Store credentials in environment variable
+          echo "RDP_PASSWORD=$PASSWORD" >> $GITHUB_ENV
+          
+          # Verify user creation
+          if ! id "$USERNAME" &>/dev/null; then
+              echo "User creation failed"
+              exit 1
+          fi
+
+      - name: Install Tailscale
+        run: |
+          # Add Tailscale's GPG key
+          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+          
+          # Add Tailscale repository
+          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+          
+          # Install Tailscale
+          sudo apt-get update
+          sudo apt-get install -y tailscale
+
+      - name: Establish Tailscale Connection
+        run: |
+          # Bring up Tailscale with the provided auth key and set a unique hostname
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-${{ github.run_id }}
+          
+          # Wait for Tailscale to assign an IP
+          TS_IP=""
+          RETRIES=0
+          while [ -z "$TS_IP" ] && [ $RETRIES -lt 10 ]; do
+              TS_IP=$(tailscale ip -4 2>/dev/null)
+              sleep 5
+              RETRIES=$((RETRIES + 1))
+          done
+
+          if [ -z "$TS_IP" ]; then
+              echo "Tailscale IP not assigned. Exiting."
+              exit 1
+          fi
+          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
+
+      - name: Verify RDP Accessibility
+        run: |
+          echo "Tailscale IP: $TAILSCALE_IP"
+          
+          # Test connectivity using netcat against the Tailscale IP on port 3389
+          nc -zv -w 5 $TAILSCALE_IP 3389
+          if [ $? -ne 0 ]; then
+              echo "TCP connection to RDP port 3389 failed"
+              exit 1
+          fi
+          echo "TCP connectivity successful!"
+
+      - name: Display Access Login
+        run: |
+          echo ""
+          echo "╔════════════════════════════════════════════════╗"
+          echo "║         🍎 MAC OS STYLE RDP LOGIN 🍎          ║"
+          echo "╠════════════════════════════════════════════════╣"
+          echo "║  Tailscale IP : $TAILSCALE_IP"
+          echo "║  Username     : $RDP_USERNAME"
+          echo "║  Password     : $RDP_PASSWORD"
+          echo "║  Port         : 3389"
+          echo "║  Desktop      : Budgie (macOS Style)"
+          echo "╚════════════════════════════════════════════════╝"
+          echo ""
+          echo "📋 Connection Instructions:"
+          echo "   1. Connect using Remote Desktop Client"
+          echo "   2. Make sure Tailscale is running on your machine"
+          echo "   3. Use IP: $TAILSCALE_IP"
+          echo "   4. Login with the credentials above"
+          echo "   5. Experience macOS-like interface!"
+          echo ""
+
+      - name: Maintain Connection
+        run: |
+          echo "🟢 macOS Style Desktop Active - Keeping connection alive..."
+          echo "   • Connected via Tailscale IP: $TAILSCALE_IP"
+          echo "   • Active User: $RDP_USERNAME"
+          echo "   • Desktop: Budgie (macOS Style)"
+          echo "   • Press Ctrl+C to cancel workflow and terminate session"
+          echo ""
+          
+          # Keep runner active indefinitely (or until manually cancelled)
+          while true; do
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✓ Connection Active | IP: $TAILSCALE_IP | User: $RDP_USERNAME | Uptime: $(uptime -p)"
+              sleep 300
+          done
